@@ -1,0 +1,159 @@
+//Delaney Harwell
+//74084784
+//Project 6 :D
+#include <stdio.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <stdbool.h>
+
+#define MAX_BUFFER_SIZE 10
+#define MAX_THREADS 16
+
+typedef struct {
+    int *buf;
+    int n; //max number of slots
+    int front;
+    int rear;
+    sem_t mutex;
+    sem_t slots;
+    sem_t items;
+    sem_t produced;
+}sbuf_t;
+
+float consumer_delay = 0; 
+float producer_delay = 0;
+
+int itemsPerProducer;
+int itemsPerConsumer;
+
+pthread_t *producerThreads;
+pthread_t *consumerThreads;
+sbuf_t buffer;
+
+
+void *producer(void * arg);
+void *consumer(void * arg);
+
+void printMessage(const char * role, int threadNumber, const char *action, int itemNumber){
+    printf("%s_%d %s item %d\n", role, threadNumber, action, itemNumber);
+}
+
+void sbuf_init(sbuf_t *sp, int n){
+    sp->buf = calloc(n, sizeof(int));
+    sp->n = n;
+    sp->front = sp->rear = 0;
+    sem_init(&sp->mutex, 0, 1);
+    sem_init(&sp->slots, 0, n);
+    sem_init(&sp->items, 0,0);
+}
+
+void sbuf_deinit(sbuf_t *sp){
+    free(sp->buf);
+}
+
+
+void *producer(void * arg){
+    int producerNumber = *(int *)arg;
+    free(arg);
+    for (int i = 0; i< itemsPerProducer; ++i ){
+        sem_wait(&buffer.slots);
+        sem_wait(&buffer.mutex);
+     
+        int item = producerNumber*itemsPerProducer+i;
+        buffer.buf[(++buffer.rear)%(buffer.n)] = item;
+        printMessage("producer", producerNumber, "produced", item);
+
+        sem_post(&buffer.mutex);
+        sem_post(&buffer.items);
+
+        sleep((unsigned int)producer_delay);  //sleepy time
+       
+    }
+    pthread_exit(NULL);
+}
+
+void *consumer(void * arg){
+    int consumerNumber = *(int *)arg;
+    free(arg);
+    for (int i = 0; i < itemsPerConsumer; ++i){
+        //get that b*tch from that b*ffer
+        sem_wait(&buffer.items);
+        sem_wait(&buffer.mutex);
+        
+        int item = buffer.buf[(++buffer.front)%(buffer.n)];
+        printMessage("consumer", consumerNumber, "consumed", item);
+
+        sem_post(&buffer.mutex);
+        sem_post(&buffer.slots);
+       
+        sleep((unsigned int)consumer_delay); //sleepy time
+    }
+    pthread_exit(NULL);
+}
+
+
+int main(int argc, char * argv[]){
+    //get the inputs into variables<3
+    if (argc!= 6){
+        printf("Error: invalid input!\n");
+        return 0;
+    }
+    int numProducers = atoi(argv[1]);
+    int numConsumers = atoi(argv[2]);
+    itemsPerProducer = atoi(argv[3]);
+    int bufferSize = atoi(argv[4]);
+    int delay = atoi(argv[5]);
+  
+
+    if (delay == 0)
+        consumer_delay = 0.5;
+    else if (delay ==1)
+        producer_delay = 0.5;
+
+    if (numConsumers >= numProducers*itemsPerProducer){
+        printf("Error: the number of consumers must be smaller than total items being produced.\n");
+        return 0 ;
+    }
+    sbuf_init(&buffer, bufferSize);
+ 
+    
+    itemsPerConsumer = (numProducers * itemsPerProducer) / numConsumers;
+    producerThreads = (pthread_t*) malloc(numProducers*sizeof(pthread_t));
+    consumerThreads = (pthread_t*) malloc(numConsumers*sizeof(pthread_t));
+    int * producerNumber;
+    int * consumerNumber;
+    //go produce go
+    for (int i = 0; i < numProducers; ++i){
+        producerNumber = malloc(sizeof(int));
+        *producerNumber = i;
+        pthread_create(producerThreads+i, NULL, &producer, producerNumber);
+    }
+
+    //go consume go
+    for (int i = 0; i < numConsumers; i++){
+        consumerNumber = malloc(sizeof(int));
+        *consumerNumber = i;
+        pthread_create(consumerThreads+i, NULL, &consumer, consumerNumber);
+    }
+
+    for (int i = 0; i < numProducers; i++){
+        pthread_join(*(producerThreads+i), NULL);
+    }
+
+    for (int i = 0; i < numConsumers; ++i){
+        pthread_join(*(consumerThreads+i), NULL);
+    }
+
+    sbuf_deinit(&buffer);
+    free(producerThreads);
+    free(consumerThreads);
+    return 0;
+}
+
+
+
